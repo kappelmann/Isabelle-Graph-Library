@@ -2,6 +2,7 @@ theory BFS_2
   imports Directed_Set_Graphs.Pair_Graph_Specs "HOL-Eisbach.Eisbach_Tools" 
           Directed_Set_Graphs.Dist
           Directed_Set_Graphs.Set2_Addons Directed_Set_Graphs.More_Lists
+    Zippy.Zip_Metis
 begin
 
 record ('parents, 'vset) BFS_state = parents:: "'parents" current:: "'vset" visited:: "'vset"
@@ -217,16 +218,9 @@ lemma BFS_cases:
   assumes "BFS_call_1_conds bfs_state \<Longrightarrow> P"
       "BFS_ret_1_conds bfs_state \<Longrightarrow> P"
   shows "P"
-proof-
-  have "BFS_call_1_conds bfs_state \<or>
-        BFS_ret_1_conds bfs_state"
-    by (auto simp add: BFS_call_1_conds_def
-                        BFS_ret_1_conds_def
-           split: list.split_asm option.split_asm if_splits)
-  then show ?thesis
     using assms
-    by auto
-qed
+  by (auto simp add: BFS_call_1_conds_def BFS_ret_1_conds_def
+    split: list.split_asm option.split_asm if_splits)
 
 lemma BFS_simps:
   assumes "BFS_dom BFS_state" 
@@ -243,11 +237,9 @@ lemma BFS_induct:
                         (BFS_call_1_conds bfs_state \<Longrightarrow> P (BFS_upd1 bfs_state))\<rbrakk>
               \<Longrightarrow> P bfs_state"
   shows "P bfs_state"
-  apply(rule BFS.pinduct)
-  subgoal using assms(1) .
-  apply(rule assms(2))
-  by (auto simp add: BFS_call_1_conds_def BFS_upd1_def Let_def
-           split: list.splits option.splits if_splits)
+  by (rule BFS.pinduct)
+  (auto simp add: BFS_call_1_conds_def BFS_upd1_def Let_def
+    split: list.splits option.splits if_splits intro: assms)
 
 lemma BFS_domintros: 
   assumes "BFS_call_1_conds BFS_state \<Longrightarrow> BFS_dom (BFS_upd1 BFS_state)"
@@ -255,8 +247,8 @@ lemma BFS_domintros:
 proof(rule BFS.domintros, goal_cases)
   case (1)
   then show ?case
-    using assms(1)[simplified BFS_call_1_conds_def BFS_upd1_def]
-    by (force simp: Let_def split: list.splits option.splits if_splits)
+    using assms[simplified BFS_call_1_conds_def BFS_upd1_def]
+    by (auto simp: Let_def)
 qed
 
 lemma invar_1_props[invar_props_elims]: 
@@ -325,10 +317,9 @@ lemma invar_2_intro[invar_props_intros]:
 
 lemma invar_2_holds_upd1[invar_holds_intros]: 
   "\<lbrakk>BFS_call_1_conds bfs_state; invar_1 bfs_state; invar_2 bfs_state\<rbrakk> \<Longrightarrow> invar_2 (BFS_upd1 bfs_state)"
-  apply(auto elim!: call_cond_elims invar_1_props invar_2_props intro!: invar_props_intros simp: BFS_upd1_def Let_def)
-  apply(auto simp: dVs_def)
-  apply (metis Un_iff dVsI(1) dVs_def in_mono)
-  by (metis Un_iff dVsI(2) dVs_def in_mono)
+  by (zip elim!: call_cond_elims invar_1_props invar_2_props elim: in_dVsE
+    intro!: invar_props_intros simp: BFS_upd1_def Let_def
+    where run exec: Zip.Breadth_First.all')
 
 lemma invar_2_holds_ret_1[invar_holds_intros]:
   "\<lbrakk>BFS_ret_1_conds bfs_state; invar_2 bfs_state\<rbrakk> \<Longrightarrow> invar_2 (BFS_ret1 bfs_state)"
@@ -515,10 +506,8 @@ lemma dist_current_plus_1_new:
 
       ultimately show False
         using \<open>invar_3_4 bfs_state\<close>
-        apply(elim invar_props_elims)
-        apply(drule dist_set_not_inf)
         using dual_order.trans dist_set_mem
-        by (smt (verit, best))
+        by (auto elim: invar_props_elims)
     qed
     ultimately show ?thesis
       by force
@@ -597,8 +586,7 @@ next
       by (auto elim!: invar_3_2_props dest: leD)
     ultimately show ?thesis
       using \<open>invar_1 bfs_state\<close> \<open>invar_2 bfs_state\<close> \<open>u \<in> neighbourhood (Graph.digraph_abs G) u'\<close>
-      apply(auto simp: BFS_upd1_def Let_def elim!: invar_1_props invar_2_props)
-      by blast
+      by (zip simp: BFS_upd1_def Let_def elim!: invar_1_props invar_2_props)
   next
     case not_in_srcs: False
     text \<open>Contradiction because if \<open>u \<in> srcs\<close> then distance srcs to a vertex in srcs is > 0. This is
@@ -645,7 +633,7 @@ proof(intro invar_props_intros, goal_cases)
       using assms
       by(fastforce intro!: dist_current_plus_1_new)
     ultimately show ?thesis
-      by (metis le_iff_add order.trans)
+      by (auto iff: le_iff_add)
   qed
 qed
 
@@ -784,9 +772,8 @@ proof(intro invar_props_intros, goal_cases)
         using \<open>invar_goes_through_current bfs_state\<close> u_in_visited
               \<open>v \<notin> t_set (visited bfs_state) \<union> t_set (current bfs_state)\<close>
           \<open>invar_1 bfs_state\<close> \<open>invar_2 bfs_state\<close>
-        apply (intro list_2_preds[where ?P2.0 = "(\<lambda>x. x \<in> t_set (current bfs_state))",
-              simplified list_inter_mem_iff[symmetric]])
-        by (fastforce elim!: invar_goes_through_current_props dest!: vwalk_bet_suff split_vwalk)+
+        by (zip elim!: invar_goes_through_current_props dest!: vwalk_bet_suff split_vwalk
+        simp: list_inter_mem_iff where urule list_2_preds)
 
     then obtain p1 x p2 where "p = p1 @ x # p2" and
       "x \<in> t_set (current bfs_state)" and
@@ -1020,9 +1007,8 @@ lemma invar_current_no_out_intro[invar_props_intros]:
 lemma invar_current_no_out_holds_upd1[invar_holds_intros]: 
   "\<lbrakk>BFS_call_1_conds bfs_state; invar_1 bfs_state; invar_2 bfs_state; invar_current_no_out bfs_state\<rbrakk>
      \<Longrightarrow> invar_current_no_out (BFS_upd1 bfs_state)"
-  apply(auto elim!: call_cond_elims invar_1_props invar_2_props intro!: invar_props_intros simp: BFS_upd1_def Let_def)
-  apply blast+
-  done
+  by (zip elim!: call_cond_elims invar_1_props invar_2_props intro!: invar_props_intros simp: BFS_upd1_def Let_def
+    where blast depth: 6)
 
 lemma invar_current_no_out_holds_ret_1[invar_holds_intros]:
   "\<lbrakk>BFS_ret_1_conds bfs_state; invar_current_no_out bfs_state\<rbrakk> \<Longrightarrow> invar_current_no_out (BFS_ret1 bfs_state)"
@@ -1117,19 +1103,15 @@ proof(intro invar_props_intros, goal_cases)
 
         ultimately have "length p - 1 > distance_set (Graph.digraph_abs G) (t_set srcs) v"
           using \<open>u \<in> t_set srcs\<close> 1
-          apply auto
-          by (metis One_nat_def order_neq_le_trans vwalk_bet_dist_set)
+          by (zip metis One_nat_def order_neq_le_trans vwalk_bet_dist_set)
 
         hence "length p - 2 \<ge>  distance_set (Graph.digraph_abs G) (t_set srcs) v"
           using \<open>length p > 1\<close>  
-          apply (auto simp: eval_nat_numeral)
-          by (metis leD leI Suc_diff_Suc Suc_ile_eq)
+          by (zip simp: eval_nat_numeral where metis leD leI Suc_diff_Suc Suc_ile_eq)
         moreover obtain p' v' where "p = p' @ [v', v]"
           using \<open>length p > 1\<close>
-          apply (auto
-              simp: eval_nat_numeral Suc_le_length_iff Suc_le_eq[symmetric]
-              split: if_splits)
-          by (metis append.right_neutral append_butlast_last_cancel assms(8) length_Cons
+          by (zip simp: eval_nat_numeral Suc_le_length_iff Suc_le_eq[symmetric] split: if_splits
+            where metis append.right_neutral append_butlast_last_cancel assms(8) length_Cons
               length_butlast length_tl list.sel(3) list.size(3) nat.simps(3) vwalk_bet_def)
         have "vwalk_bet (Graph.digraph_abs (parents bfs_state)) u (p' @ [v']) v'"
         proof(rule ccontr, goal_cases)
@@ -1160,9 +1142,9 @@ proof(intro invar_props_intros, goal_cases)
               by (auto elim: invar_props_elims)
             hence "last (p @ [v']) = v''"
               using that \<open>vwalk_bet (Graph.digraph_abs (parents (BFS_upd1 bfs_state))) u (p' @ [v']) v'\<close>[simplified bfs_state'_def[symmetric]]
-              apply (auto dest: v_in_edge_in_vwalk elim!: vwalk_bet_props intro!: no_outgoing_last)
-               apply (metis "2"(2) last_snoc no_outgoing_last v_in_edge_in_vwalk(2))
-              by (metis "2"(2) last_snoc no_outgoing_last v_in_edge_in_vwalk(2))
+              by (zip dest: v_in_edge_in_vwalk elim!: vwalk_bet_props intro!: no_outgoing_last
+               where metis "2"(2) last_snoc no_outgoing_last v_in_edge_in_vwalk(2)
+               where run exec: Zip.Best_First.all')
             hence "v' = v''"
               using that
               by auto
@@ -1281,20 +1263,17 @@ lemma BFS_correct_2_ret_1:
     t \<in> t_set (visited bfs_state) - t_set srcs\<rbrakk>
          \<Longrightarrow> distance_set (Graph.digraph_abs G) (t_set srcs) t =
          distance_set (Graph.digraph_abs (parents bfs_state)) (t_set srcs) t"
-  apply(erule invar_props_elims)+
-  by (auto elim!: call_cond_elims invar_props_elims)
+  by (zip elim!: call_cond_elims invar_props_elims)
 
 lemma BFS_correct_3_ret_1:
   "\<lbrakk>invar_parents_shortest_paths bfs_state; BFS_ret_1_conds bfs_state;
     u \<in> t_set srcs; Vwalk.vwalk_bet (Graph.digraph_abs (parents bfs_state)) u p v\<rbrakk>
          \<Longrightarrow> length p - 1 = distance_set (Graph.digraph_abs G) (t_set srcs) v"
-  apply(erule invar_props_elims)+
   by (auto elim!: call_cond_elims invar_props_elims)
 
 lemma BFS_correct_4_ret_1:
   "\<lbrakk>invar_2 bfs_state; BFS_ret_1_conds bfs_state\<rbrakk> \<Longrightarrow>
     (Graph.digraph_abs (parents bfs_state))\<subseteq> Graph.digraph_abs G"
-  apply(erule invar_props_elims)+
   by (auto elim!: call_cond_elims invar_props_elims)
 
 subsection \<open>Termination\<close>
@@ -1346,17 +1325,15 @@ next
                  \<subseteq> (\<lambda>(x,y). {x,y} ) ` ({v. \<exists>y. lookup G v = Some y} \<times>
                                         (\<Union> {t_set N | v N. lookup G v = Some N}))"
     including Graph.adjmap.automation and Graph.vset.set.automation
-    apply (auto simp: Graph.digraph_abs_def Graph.neighbourhood_def image_def
-                split: option.splits)
-    by (metis Graph.graph_invE Graph.vset.set.set_isin graph_inv(1))
+    by (zip simp: Graph.digraph_abs_def Graph.neighbourhood_def image_def split: option.splits
+    where metis Graph.graph_invE Graph.vset.set.set_isin graph_inv(1))
   moreover have "{uu. \<exists>v N. uu = t_set N \<and> lookup G v = Some N} = 
                    ((t_set o the o (lookup G)) ` {v | N v. lookup G v = Some N})"
     by (force simp: image_def)
   hence "finite (\<Union> {t_set N | v N. lookup G v = Some N})"
     using graph_inv(1,2,3)
-    apply(subst (asm) Graph.finite_vsets_def )
-    by (auto simp: Graph.finite_graph_def Graph.graph_inv_def
-             split: option.splits)
+    by (zip subst (asm) Graph.finite_vsets_def
+      where clasimp simp: Graph.finite_graph_def Graph.graph_inv_def split: option.splits)
   ultimately have "finite {{v1, v2} |v1 v2. (v1,v2) \<in> [G]\<^sub>g}"
     using graph_inv(2)
     by (auto simp: Graph.finite_graph_def intro!: finite_subset[OF *])
@@ -1406,12 +1383,8 @@ lemma BFS_terminates[termination_intros]:
   assumes "invar_1 BFS_state" "invar_2 BFS_state" "invar_current_no_out BFS_state"
   shows "BFS_dom BFS_state"
   using wf_term_rel assms
-proof(induction rule: wf_induct_rule)
-  case (less x)
-  show ?case
-    apply (rule BFS_domintros)
-    by (auto intro: invar_holds_intros intro!: termination_intros less)
-qed
+  by (induction rule: wf_induct_rule)
+  (auto intro: invar_holds_intros BFS_domintros termination_intros)
 
 lemma not_vwalk_bet_empty[simp]: "\<not> Vwalk.vwalk_bet (Graph.digraph_abs empty) u p v"
   using not_vwalk_bet_empty
@@ -1664,13 +1637,13 @@ proof-
     note one = this
     have case1: "u \<in> [current state]\<^sub>s"
       if asm: "u \<in> [visited state]\<^sub>s"  "(u, v) \<notin> [parents state]\<^sub>g" 
-      apply(rule  invar_3_3_props[OF assms(6)], rule invar_level_so_far_in_parentsE[OF assms(2)])
-      using "1"(4) asm neighbourhoodD[OF 1(3)] by fast
+      using "1"(4) asm neighbourhoodD[OF 1(3)]
+      by (zip intro: invar_3_3_props[OF assms(6)] invar_level_so_far_in_parentsE[OF assms(2)]
+        where run exec: Zip.Breadth_First.all')
     have case2: "u \<in> [current state]\<^sub>s"
       if asm: "v \<in> [visited state]\<^sub>s" "(u, v) \<notin> [parents state]\<^sub>g" 
-      apply(rule invar_3_4_props[OF assms(7)])
       using "1"(3,4) asm 
-      by (force intro: invar_level_so_far_in_parentsE[OF assms(2)])
+      by (zip intro: invar_3_4_props[OF assms(7)] invar_level_so_far_in_parentsE[OF assms(2)])
     have case3: False
       if asm: "ua \<in> [current state]\<^sub>s" "(u, v) \<notin> [parents state]\<^sub>g" "v \<in> [visited state]\<^sub>s"for ua
     proof-

@@ -1,5 +1,6 @@
 theory DFS
   imports Directed_Set_Graphs.Pair_Graph_Specs Directed_Set_Graphs.Set2_Addons Directed_Set_Graphs.Set_Addons  
+    Zippy.Zip_Metis
 begin
 
 section\<open>Depth-Frist Search\<close>
@@ -215,9 +216,9 @@ lemma DFS_induct:
                         DFS_call_1_conds dfs_state \<Longrightarrow> P (DFS_upd1 dfs_state);
                         DFS_call_2_conds dfs_state \<Longrightarrow> P (DFS_upd2 dfs_state)\<rbrakk> \<Longrightarrow> P dfs_state"
   shows "P dfs_state"
-  apply(rule DFS.pinduct[OF assms(1)])
-  apply(rule assms(2)[simplified DFS_call_1_conds_def DFS_upd1_def DFS_call_2_conds_def DFS_upd2_def])
-  by (auto simp: Let_def split: list.splits option.splits if_splits)
+  by (zip intro: DFS.pinduct[OF assms(1)]
+  simp: Let_def DFS_call_1_conds_def DFS_upd1_def DFS_call_2_conds_def DFS_upd2_def
+  split: list.splits option.splits if_splits where urule assms(2))
 
 lemma DFS_domintros: 
   assumes "DFS_call_1_conds dfs_state \<Longrightarrow> DFS_dom (DFS_upd1 dfs_state)"
@@ -620,9 +621,9 @@ lemma ret1_holds[ret_holds_intros]:
 proof(induction  rule: DFS_induct[OF assms(1)])
   case IH: (1 dfs_state)
   show ?case
-    apply(rule DFS_cases[where dfs_state = dfs_state])
     using IH(4)                                                                
-    by (auto intro: ret_holds_intros intro!: IH(2-) simp: DFS_simps[OF IH(1)] DFS_ret2_def)
+    by (zip intro: DFS_cases[where dfs_state = dfs_state] ret_holds_intros
+      intro!: IH(2-) simp: DFS_simps[OF IH(1)] DFS_ret2_def)
 qed
 
 lemma DFS_correct_ret_1:
@@ -766,9 +767,7 @@ qed
 end
 
 lemma s_not_in_dVs_not_reachable:"s \<notin> dVs (Graph.digraph_abs G) \<Longrightarrow> return (DFS initial_state) = NotReachable"
-  apply(subst initial_state_def)
-  apply(subst DFS.psimps)
-  by(auto intro!: DFS.domintros)
+  by (auto simp: initial_state_def DFS.psimps intro!: DFS.domintros)
 
 end
 
@@ -804,13 +803,8 @@ begin
 lemma DFS_to_DFS_impl: "DFS initial_state = DFS_impl initial_state"
 proof-
   have DFS_to_DFS_impl: " DFS state = DFS_impl state" if  "DFS_dom state" for state
-  apply(induction rule: DFS.pinduct[OF that])
-  subgoal for state
-  apply(subst DFS.psimps)
-   apply simp
-    apply(subst DFS_impl.simps)
-    by(auto simp add: Let_def split: if_split list.split)
-  done
+    by (induction rule: DFS.pinduct[OF that])
+    (zip simp: Let_def split: if_split list.split where subst DFS_impl.simps DFS.psimps)
   thus ?thesis
     using initial_state_props(6)
     by auto
@@ -818,9 +812,7 @@ qed
 
 lemma s_not_in_dVs_same:"s \<notin> dVs (Graph.digraph_abs G) 
            \<Longrightarrow> DFS initial_state = DFS_impl initial_state"
-  apply(subst initial_state_def)
-  apply(subst DFS.psimps)
-  by(auto intro!: DFS.domintros)
+  by(auto simp: initial_state_def DFS.psimps intro!: DFS.domintros)
 
 end
 
